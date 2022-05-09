@@ -1,0 +1,50 @@
+---
+title: "Final KH Phylo tree"
+author: "Katherine"
+date: '2022-05-06'
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#```{r}
+install.packages(ape)
+install.packages(tidyverse)
+install.packages("phangorn")
+install.packages(ggplot2)
+install.packages(seqinr)
+install.packages(bio3d)
+#```
+
+```{r}
+library(ape)
+library(tidyverse)
+library(ggplot2)
+library(seqinr) #biological sequences retrieval 
+library(msa) #multiple sequence alignment package
+library(ggtree)
+library(phangorn)
+library(bio3d)
+```
+
+#Reading in ITS2 data from Sym Portal Published Named sequences https://symportal.org
+```{r}
+its2 <- readDNAStringSet("published_div.fasta")
+its2
+#its2_phyDat <- phyDat(its2, type = "DNA", levels = NULL)
+
+#write(its2hundred, file = "bluetoes.fasta")
+```
+
+#Selecting random 100 ITS2 sequences
+```{r}
+randomHundred <- sample(1:length(its2), size = 100, replace = F)
+its2Hundred <- its2[randomHundred]
+write.csv(its2Hundred, file = "bluetoes2.fasta")
+randomHundred
+its2Hundred
+```

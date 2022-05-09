@@ -1,0 +1,349 @@
+---
+title: "Final paper KH boxplots"
+author: "Katherine"
+date: '2022-04-24'
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Libraries
+```{r}
+library("tidyverse")
+library("ggstatsplot")
+library("ggplot2")
+library("ggpubr")
+library("corrgram")
+library("ellipse")
+library("mctest")
+library("car")
+library("PMCMRplus")
+library("dplyr")
+library("broom")
+```
+
+#Reading in data
+```{r}
+data <- read.csv("Cunning_ED50.csv")
+
+summary(data)
+print(data$estimate_ed50)
+```
+#Inital look at data-boxplot of thermotolerance vs genotype
+```{r}
+#boxplot(estimate_ed50~geno, data= data)
+```
+#Models
+```{r}
+nurs_loc <- tribble(
+  ~nursery, ~nurs_lat, ~nurs_lon, 
+  "MML", 24.56, -81.40,
+  "NSU", 26.12, -80.09,
+  "UM", 25.67, -80.09,
+  "CRF", 24.98, -80.43,
+  "RR", 24.98, -80.43,
+  "FWC", 24.66, -81.02
+)
+
+subset2 <- data %>% 
+  left_join(nurs_loc) %>% 
+  group_by(nursery) %>% 
+  arrange(-estimate_ed50)  %>%
+  mutate(order_ed50 = 1:n()) %>% 
+  #mutate(Ranking = case_when(order_ed50 <= 20 ~ "CRF Top 20", #case_when is if statement
+                            #TRUE ~ "Others"))) %>%  #then that, Ranking is new column
+  filter(order_ed50 <= 20 ) %>% 
+  mutate(nursery = factor(nursery, levels = c("MML", "FWC", "RR", "CRF", "UM", "NSU")))
+
+# Test for equal variance across nursery latitude
+car::leveneTest(estimate_ed50 ~ as.factor(nurs_lat), data = subset2) %>%
+  knitr::kable(caption = "Levene's test for homogeneity of variance")
+#failing, each nursery does not have equal variance of Ed50
+
+## Unequal variance among nurseries -- use Welch ANOVA
+welch <- oneway.test(estimate_ed50 ~ as.factor(nurs_lat), data = subset2)
+welch
+tidy(welch) %>% knitr::kable(caption = "Welch's anova for unequal variance among nurseries")
+#p-value = 2.2e-16
+
+#LM and ANOVA for top performers looking at source latitude
+mod <- lm(estimate_ed50 ~ source_lat, data = subset2)
+anova(mod) %>% knitr::kable()
+mod #significant pvalue = 0.04
+
+#LM and ANOVA for top performers looking at nursery latitude
+mod2 <- lm(estimate_ed50 ~ nurs_lat, data = subset2)
+anova(mod) %>% knitr::kable()
+mod2 #not significant pvalue = 0.12
+
+test <- subset2 %>% 
+  group_by(nursery) %>% 
+  do(mod = tidy(lm(estimate_ed50 ~ source_lat, data = .))) %>% 
+  tidyr::unnest(mod) %>% 
+  mutate(p.est = round(p.value,3))
+
+subset2 %>% 
+  ggplot(aes(x = source_lat, y = estimate_ed50)) +
+  geom_point(aes(color = nursery)) +
+  geom_smooth(method = 'lm', aes(color = nursery))# +
+  facet_wrap(~nursery, scales = 'free')
+
+#within nursery latitude, source latitude is significant
+#regardless of nl, ed50 and lat don't correlate
+```
+#Top performers thermotolerance
+##plot of thermotolerance vs. top 20 genotype
+```{r}
+#plot all 5 nurseries ed50 vs nursery latitude
+nurs_loc <- tribble(
+  ~nursery, ~nurs_lat, ~nurs_lon, 
+  "MML", 24.56, -81.40,
+  "NSU", 26.12, -80.09,
+  "UM", 25.67, -80.09,
+  "CRF", 24.98, -80.43,
+  "RR", 24.98, -80.43,
+  "FWC", 24.66, -81.02
+)
+
+subset2 <- data %>% 
+  left_join(nurs_loc) %>% 
+  group_by(nursery) %>% 
+  arrange(-estimate_ed50)  %>%
+  mutate(order_ed50 = 1:n()) %>% 
+  #mutate(Ranking = case_when(order_ed50 <= 20 ~ "CRF Top 20", #case_when is if statement
+                            #TRUE ~ "Others"))) %>%  #then that, Ranking is new column
+  filter(order_ed50 <= 20 ) %>% 
+  mutate(nursery = factor(nursery, levels = c("MML", "FWC", "RR", "CRF", "UM", "NSU")))
+
+
+subset2 %>%
+  filter(nursery %in% c("CRF", "RR","MML", "NSU", "FWC", "UM")) %>%
+  ggplot(aes(y = nurs_lat, x = estimate_ed50)) +
+  geom_point(aes(color = nursery)) + #making ed50 values into Ranking, which will be different colors
+  geom_smooth(method = 'lm', aes(color = nursery), se = FALSE)+ #seeing if there is a trend using lm
+  scale_color_brewer(palette = "Dark2") +
+  labs(title = "Does Nursery Thermotolerance Vary by Nursery Latitude?",
+        subtitle = "Top 20 Performers",
+         x = "Nursery ED50", y= "Nursery Latitude")
+ggplot
+```
+
+##Boxplot of thermotolerance vs. top 20 genotype,genetic diversity
+```{r}
+data %>% 
+  left_join(nurs_loc) %>% 
+  ggplot(aes(x = estimate_ed50, y = nurs_lat)) +
+  geom_boxplot(aes(color = nursery))+
+  scale_color_brewer(palette = "Dark2")+
+  labs(title = "Does Nursery Thermotolerance Vary by Nursery Latitude?",
+         x = "Nursery ED50", y= "Nursery Latitude")
+```
+
+##Source latitude
+##Plot of thermotolerance by source latitude for CRF and RR
+```{r}
+subdata <- data %>% 
+  arrange(-estimate_ed50) %>% #arrange descending order
+  group_by(nursery) %>% 
+  mutate(order_ed50 = 1:n()) %>% #made new column for order of ed50 for 1 until end
+  mutate(Ranking = case_when(order_ed50 <= 20 ~ "Top 20", #case_when is if statement
+                             TRUE ~ "Others")) %>% #then that, Ranking is new column 
+  filter(Ranking == "Top 20")
+
+#install.packages("ggpmisc")
+#Plot of thermotolerance by source latitude for CRF and RR
+subdata %>%   
+  filter(nursery %in% c("CRF", "RR")) %>% #filtering for only CRF and RR nurseries
+  ggplot(aes(y = source_lat, x = estimate_ed50)) +
+  geom_point(aes(color = nursery)) + #making ed50 values into Ranking, which will be different colors
+  geom_smooth(method = 'lm', aes(color = nursery), se = FALSE)+ #seeing if there is a trend using lm
+  scale_color_brewer(palette = "Dark2") +
+  labs(title = "Does Thermotolerance Vary by Source Latitude for CRF and RR?",
+       subtitle = "Top 20 Performers",
+         x = "ED50", y= "Source Latitude")
+  # ggpmisc::stat_fit_glance(method = 'lm', geom="text", 
+  #                          aes(label = paste("R-Squared = ", ..rr.label..)),
+  #                              label.x.npc = 37, label.y.npc = 24.25)
+
+#Boxplot is better
+subdata %>% 
+  filter(nursery %in% c("CRF", "RR")) %>% 
+  ggplot(aes(y = source_lat, x = nursery)) +
+  geom_boxplot(aes(fill = nursery)) + #using fill to fill the 2 inner quartiles of plot
+  scale_color_brewer(palette = "Dark2") +
+  labs(title = "Does Thermotolerance Vary by Latitude for CRF and RR?",
+         x = "Nursery", y= "Source Latitude",
+       theme(legend.position = "none"))
+  #geom_jitter(aes(fill = Ranking), width = 0.3, alpha = 0.8)
+
+##no real trend which makes sense because CRF and RR are almost at the same site
+```
+
+##Plot of thermotolerance by source latitude for NSU and MML
+```{r}
+subdata4 <- data %>% 
+  arrange(-estimate_ed50) %>% #arrange descending order
+  group_by(nursery) %>% 
+  mutate(order_ed50 = 1:n()) %>% #made new column for order of ed50 for 1 until end
+  mutate(Ranking = case_when(order_ed50 <= 20 ~ "Top 20", #case_when is if statement
+                             TRUE ~ "Others")) #then that, Ranking is new column
+
+#install.packages("ggpmisc")
+#Plot of thermotolerance by source latitude
+subdata4 %>%   
+  filter(Ranking == "Top 20") %>% 
+  filter(nursery %in% c("NSU", "MML")) %>% #filtering for only CRF and RR nurseries
+  ggplot(aes(y = source_lat, x = estimate_ed50)) +
+  geom_point(aes(color = nursery)) + #making ed50 values into Ranking, which will be different colors
+  geom_smooth(method = 'lm', aes(color = nursery), se = FALSE)+ #seeing if there is a trend using lm
+  scale_color_brewer(palette = "Dark2") +
+  labs(title = "Does Thermotolerance Vary by Source Latitude for NSU and MML?",
+        subtitle = "Top 20 Performers",
+         x = "ED50", y= "Source Latitude")
+  # ggpmisc::stat_fit_glance(method = 'lm', geom="text", 
+  #                          aes(label = paste("R-Squared = ", ..rr.label..)),
+  #                              label.x.npc = 37, label.y.npc = 24.25)
+
+# #Boxplot is better
+# b <- subdata4 %>% 
+#   filter(nursery %in% c("NSU", "MML")) %>% 
+#   ggplot(aes(y = source_lat, x = estimate_ed50)) +
+#   geom_boxplot(aes(fill = nursery)) + #using fill to fill the 2 inner quartiles of plot
+#   scale_color_brewer(palette = "Dark2") +
+#   labs(title = "Does Thermotolerance Vary by Latitude for NSU and MML?",
+#          x = "ed50", y= "Source Latitude",
+#        theme(legend.position = "none"))
+#   #geom_jitter(aes(fill = Ranking), width = 0.3, alpha = 0.8)
+# print(a+b)
+```
+
+#Nursery latitude
+##Does thermotolerance vary by nursery latitude for NSU and MML?
+```{r}
+subset2 <- data %>% 
+  left_join(nurs_loc) %>% 
+  group_by(nursery) %>% 
+  arrange(-estimate_ed50) %>% 
+  mutate(order_ed50 = 1:n()) %>% 
+  #mutate(Ranking = case_when(order_ed50 <= 20 ~ "CRF Top 20", #case_when is if statement
+                            #TRUE ~ "Others"))) %>%  #then that, Ranking is new column
+  filter(order_ed50 <= 20 ) %>% 
+  mutate(nursery = factor(nursery, levels = c("MML", "FWC", "RR", "CRF", "UM", "NSU")))
+
+#install.packages("ggpmisc")
+#Plot of thermotolerance by nursery latitude for NSU and MML
+subset2 %>%   
+  filter(nursery %in% c("NSU", "MML")) %>% #filtering for only CRF and RR nurseries
+  ggplot(aes(y = nurs_lat, x = estimate_ed50)) +
+  geom_point(aes(color = nursery)) + #making ed50 values into Ranking, which will be different colors
+  geom_smooth(method = 'lm', aes(color = nursery), se = FALSE)+ #seeing if there is a trend using lm
+  scale_color_brewer(palette = "Dark2") +
+  labs(title = "Does Thermotolerance Vary by Nursery Latitude for NSU and MML?",
+        subtitle = "Top 20 Performers",
+         x = "ED50", y= "Nursery Latitude")
+  # ggpmisc::stat_fit_glance(method = 'lm', geom="text", 
+  #                          aes(label = paste("R-Squared = ", ..rr.label..)),
+  #                              label.x.npc = 37, label.y.npc = 24.25)
+
+#Boxplot is better
+subset2 %>% 
+  filter(nursery %in% c("NSU", "MML")) %>% 
+  ggplot(aes(y = nurs_lat, x = estimate_ed50)) +
+  geom_boxplot(aes(fill = nursery)) + #using fill to fill the 2 inner quartiles of plot
+  scale_color_brewer(palette = "Dark2") +
+  labs(title = "Does Thermotolerance Vary by Nursery Latitude for NSU and MML?",
+         x = "ED50", y= "Nursery Latitude",
+       theme(legend.position = "none"))
+  #geom_jitter(aes(fill = Ranking), width = 0.3, alpha = 0.8)
+
+```
+
+##Does thermotolerance vary by nursery latitude for CRF and RR?
+```{r}
+subset2 %>%   
+  filter(nursery %in% c("CRF", "RR")) %>% #filtering for only CRF and RR nurseries
+  ggplot(aes(y = nurs_lat, x = estimate_ed50)) +
+  geom_point(aes(color = nursery)) + #making ed50 values into Ranking, which will be different colors
+  geom_smooth(method = 'lm', aes(color = nursery), se = FALSE)+ #seeing if there is a trend using lm
+  scale_color_brewer(palette = "Dark2") +
+  labs(title = "Does Thermotolerance Vary by Nursery Latitude for CRF and RR?",
+        subtitle = "Top 20 Performers",
+         x = "ED50", y= "Nursery Latitude")
+
+subset2 %>% 
+  filter(nursery %in% c("CRF", "RR")) %>% 
+  ggplot(aes(y = nurs_lat, x = estimate_ed50)) +
+  geom_boxplot(aes(fill = nursery)) + #using fill to fill the 2 inner quartiles of plot
+  scale_color_brewer(palette = "Dark2") +
+  labs(title = "Does Thermotolerance Vary by Nursery Latitude for CRF and RR?",
+         x = "ED50", y= "Nursery Latitude",
+       theme(legend.position = "none"))
+
+
+subset2 %>%   
+  filter(nursery %in% c("FWC", "RR")) %>% #filtering for only CRF and RR nurseries
+  ggplot(aes(y = nurs_lat, x = estimate_ed50)) +
+  geom_point(aes(color = nursery)) + #making ed50 values into Ranking, which will be different colors
+  geom_smooth(method = 'lm', aes(color = nursery), se = FALSE)+ #seeing if there is a trend using lm
+  scale_color_brewer(palette = "Dark2") +
+  labs(title = "Does Thermotolerance Vary by Nursery Latitude for FWC and RR?",
+        subtitle = "Top 20 Performers",
+         x = "ED50", y= "Nursery Latitude")
+```
+
+#Extra
+```{r}
+subdata3 <- data %>% 
+  arrange(-estimate_ed50) %>% #arrange descending order
+  group_by(nursery) %>% 
+  mutate(order_ed50 = 1:n()) %>% #made new column for order of ed50 for 1 until end
+  mutate(Ranking = case_when(order_ed50 <= 20 ~ "Top 20", #case_when is if statement
+                             TRUE ~ "Others")) #then that, Ranking is new column
+#Plot of thermotolerance by source latitude for all nurseries
+subdata3 %>% 
+  ggplot(aes(y = estimate_ed50, x = source_lat)) +
+  #geom_boxplot(aes(fill = Ranking)) + #using fill to fill the 2 inner quartiles of plot
+  geom_point(aes(color = nursery)) +
+  geom_smooth(method = 'lm') +
+  scale_color_brewer(palette = "Dark2") +
+  labs(title = "Does Nursery Thermotolerance Vary by Source Latitude?",
+       subtitle = "",
+         y = "ED50", x= "Source Latitude")
+
+#Plot of thermotolerance by source latitude for all nurseries minus UM and MML
+subdata3 %>% 
+  filter(!nursery %in% c("UM", "MML")) %>%
+  left_join(nurs_loc) %>% 
+  ggplot(aes(y = estimate_ed50, x = source_lat)) +
+  #geom_boxplot(aes(fill = Ranking)) + #using fill to fill the 2 inner quartiles of plot
+  geom_point(aes(color = nursery)) +
+  geom_smooth(method = 'lm') +
+  scale_color_brewer(palette = "Dark2") 
+
+
+#FWC ed50 isn't as good, not due to source locations or nurs lat
+subdata3 %>% 
+  filter(nursery %in% c("FWC", "NSU"),
+         Ranking == "Top 20") %>% 
+  ggplot(aes(y = source_lat, x = nursery)) +
+  geom_point(aes(fill = Ranking)) + #using fill to fill the 2 inner quartiles of plot
+  geom_point(aes(color = nursery)) +
+  geom_smooth(method = 'lm') +
+  scale_color_brewer(palette = "Dark2")
+
+#
+test2 <- subdata3 %>% 
+  filter(nursery %in% c("FWC", "NSU")) %>% 
+  group_by(nursery,Ranking) %>% 
+  do(mod = tidy(lm(estimate_ed50 ~ source_lat, data = .))) %>% 
+  tidyr::unnest(mod) %>% 
+  mutate(p.est = round(p.value,3))
+``` 
+
+
+
+
